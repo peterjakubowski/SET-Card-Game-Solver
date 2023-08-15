@@ -1,9 +1,9 @@
-# Python-OpenCV Set Card Game Card Detector and Set Solver
+# Python-OpenCV SET Card Game Card Detector and SET Solver
 #
 # Author: Peter Jakubowski
 # Date: 8/2/2023
-# Description: Python script to solve the Set card game
-# by detecting and classifying Set playing cards
+# Description: Python script to solve the SET card game
+# by detecting and classifying SET playing cards
 # from an image using OpenCV.
 #
 
