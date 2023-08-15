@@ -120,5 +120,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-    # "images/images1/IMG_5254.JPG" = 7
     main(sys.argv[1:])
