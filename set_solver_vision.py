@@ -10,11 +10,16 @@
 # Import necessary packages
 import sys
 import argparse
+from argparse import Namespace
 from itertools import combinations
 import set_card_detection
+from typing import List
+import logging
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO, format='%(levelname)s: %(message)s')
 
 
-def parse_args(args):
+def parse_args(args: List[str]) -> Namespace:
     # create an argument parser using argparse
     parser = argparse.ArgumentParser(description="solve the 'sets' in the image")
     # add an argument to the parser for the image path
@@ -37,12 +42,14 @@ def parse_args(args):
     return args
 
 
-def main(args):
-    # takes a path to an image of SET cards,
-    # detects the cards in the image and solves
-    # for all 'set' combinations. displays the original
-    # image with rectangles drawn around cards that
-    # form a 'set'. displays one solution at a time.
+def main(args: List[str]):
+    """
+    Takes a path to an image of SET cards,
+    detects the cards in the image and solves
+    for all 'set' combinations. Displays the original
+    image with rectangles drawn around cards that
+    form a 'set'. Displays one solution at a time.
+    """
 
     # parse arguments
     args = parse_args(args)
@@ -58,10 +65,10 @@ def main(args):
         # return the open image and a list of card objects
         # of class SetCard, one for each of the cards in the image
 
-        print(f"Processing image: {filename}...")
+        logging.info(f"Processing image: {filename}...")
         set_cards, img = set_card_detection.find_card_contours(img)
 
-        print("Predicting labels for cards...")
+        logging.info("Predicting labels for cards...")
         # loop through all SET card objects in the list of cards
         # and get the labels for shapes on each card
         for card in set_cards[:]:
@@ -87,7 +94,7 @@ def main(args):
                 if set_card_detection.is_set(combo):
                     solved_sets.append(combo)
 
-            print(f"Solved {len(solved_sets)} 'set{'s' if len(solved_sets) != 1 else ''}'")
+            logging.info(f"Solved {len(solved_sets)} 'set{'s' if len(solved_sets) != 1 else ''}'")
 
             # print and show all the solved 'sets' that were found if any
             if len(solved_sets) > 0:
@@ -97,10 +104,10 @@ def main(args):
                 for set_solution in solved_sets:
                     frame_title = f"{count} of {len(solved_sets)} 'sets' in {filename}"
                     title = f"{count} of {len(solved_sets)} 'sets'\n\n"
-                    print(f"{count}) These three cards make a 'set':")
+                    logging.info(f"{count}) These three cards make a 'set':")
                     for i in range(len(set_solution)):
                         title += f"{i + 1}) {set_solution[i]}\n"
-                        print(f"{set_solution[i]}")
+                        logging.info(f"{set_solution[i]}")
                     # get the annotated image with 'set' solution
                     annotate_img = set_card_detection.annotate_cards_image(set_solution, img, args.save,
                                                                            f"{filename.split('.')[0]}_Set{count}")
