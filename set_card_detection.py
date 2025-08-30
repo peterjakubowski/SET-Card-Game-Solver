@@ -8,9 +8,12 @@
 
 # Import necessary packages
 import os
-import cv2 as cv
+import cv2
 import numpy as np
 from imutils import paths
+from typing import List, Tuple, Literal
+import logging
+
 
 # dictionary of card attributes converting integer values from card vectors to strings
 SET_MAP = {"shape": {-1: "none", 0: "diamond", 1: "oval", 2: "squiggle"},
@@ -27,12 +30,12 @@ LABELS_MAP = {"shape": {"none": -1, "diamond": 0, "oval": 1, "squiggle": 2},
 
 
 class SetCard:
-    # structure to store information about SET cards
+    """Structure to store information about a SET card"""
 
     def __init__(self):
         self.image = []  # image of individual card
         self.card_contour = []  # contour of card
-        self.bbox = []  # bounding rectangle of card  on image (x, y, w, h)
+        self.bbox = []  # bounding rectangle of card on image (x, y, w, h)
         self.box = []  # coordinates of four corners for minimum area bounding box of card
         self.shapes_contours = []  # contours of shapes on card
         self.shapes_boxes = []  # bounding rectangle (box) of each shape on card (x, y, w, h)
@@ -57,13 +60,18 @@ class SetCard:
         return f"Card with {number} {color} {shape} shape{'s' if self.number > 0 else ''} in {shading} shading."
 
 
-def is_set(set_cards):
-    # decision function that tells whether three given cards make a 'set',
-    # boolean function for judging a combination of three cards
+def is_set(set_cards: Tuple[SetCard, SetCard, SetCard]) -> bool:
+    """
+    Decision function that tells whether three given cards make a 'set',
+    boolean function for judging a combination of three cards.
+
+    :param set_cards:
+    :return:
+    """
 
     # make sure there are exactly three cards
     if len(set_cards) != 3:
-        print(f"Incorrect number of cards, there must be three, {len(set_cards)} were provided.")
+        logging.warning(f"Incorrect number of cards, there must be three, {len(set_cards)} were provided.")
         return False
 
     cards_make_set = True
@@ -94,29 +102,35 @@ def is_set(set_cards):
     return cards_make_set
 
 
-# Helper functions
+# ------------------------
+# --- Helper functions ---
+# ------------------------
 
-def read_image(image_path):
-    # Function for reading an image,
-    # takes a path to input image and reads the image
+def read_image(image_path: str) -> np.ndarray | None:
+    """
+    Function for reading an image,
+    takes a path to input image and reads the image.
+    """
 
     # check if the path exists
     if os.path.exists(image_path):
         # open the image
-        image = cv.imread(image_path)
+        image = cv2.imread(image_path)
         if image is None:
-            print(f"{image_path} image can't be read")
+            logging.warning(f"{image_path} image can't be read")
     else:
-        print(f"{image_path} Invalid file path")
+        logging.warning(f"{image_path} Invalid file path")
         image = None
 
     return image
 
 
-def resize_image(image, size=300):
-    # Function for rescaling the width and height
-    # of an image to keep aspect ratio. Size is
-    # the desired length of the longest edge in pixels.
+def resize_image(image: np.ndarray, size: int = 300) -> Tuple[int, int]:
+    """
+    Function for rescaling the width and height
+    of an image to keep aspect ratio. Size is
+    the desired length of the longest edge in pixels.
+    """
 
     # get image width
     width = image.shape[1]
@@ -150,13 +164,15 @@ def resize_image(image, size=300):
     return w, h
 
 
-def rotate_card(image, rectangle):
-    # crops a rotated rectangle from a minimum area bounding box
-    # https://jdhao.github.io/2019/02/23/crop_rotated_rectangle_opencv/
+def rotate_card(image: np.ndarray, rectangle: List[int]) -> np.ndarray:
+    """
+    Crops a rotated rectangle from a minimum area bounding box
+    https://jdhao.github.io/2019/02/23/crop_rotated_rectangle_opencv/
+    """
 
     # the order of the box points: bottom left, top left, top right,
     # bottom right
-    box = cv.boxPoints(rectangle)
+    box = cv2.boxPoints(rectangle)
     box = np.intp(box)
 
     # get width and height of the detected rectangle
@@ -172,21 +188,23 @@ def rotate_card(image, rectangle):
                         [width - 1, height - 1]], dtype="float32")
 
     # the perspective transformation matrix
-    transformation_matrix = cv.getPerspectiveTransform(src_pts, dst_pts)
+    transformation_matrix = cv2.getPerspectiveTransform(src_pts, dst_pts)
 
     # directly warp the rotated rectangle to get the straightened rectangle
-    rotated_card = cv.warpPerspective(image, transformation_matrix, (width, height))
+    rotated_card = cv2.warpPerspective(image, transformation_matrix, (width, height))
 
     # rotate the image 90 degrees to be horizontal if orientation is vertical
     if rotated_card.shape[0] > rotated_card.shape[1]:
-        rotated_card = cv.rotate(rotated_card, cv.ROTATE_90_CLOCKWISE)
+        rotated_card = cv2.rotate(rotated_card, cv2.ROTATE_90_CLOCKWISE)
 
     return rotated_card
 
 
-def pad_box(box, img_shape):
-    # adds 5 pixels to each box dimension
-    # if coordinates fit in the image
+def pad_box(box: Tuple[int, int, int, int], img_shape: Tuple[int, int]) -> Tuple[int, int, int, int]:
+    """
+    Adds 5 pixels to each box dimension
+    if coordinates fit in the image
+    """
 
     # unpack the box tuple
     x, y, w, h = box
@@ -213,39 +231,43 @@ def pad_box(box, img_shape):
 
     return x1, x2, y1, y2
 
-# Image processing
+
+# ------------------------
+# --- Image processing ---
+# ------------------------
+
 # Find outer contours of cards
-
-
-def find_card_contours(image):
-    # Function for finding the contours of cards.
-    # Reads an image, then resizes, blurs, thresholds,
-    # and finds the outer contours of all cards in the image.
-    # Returns a list of SET card objects and the open image of all card.
+def find_card_contours(image: np.ndarray) -> Tuple[List[SetCard], np.ndarray]:
+    """
+    Function for finding the contours of cards.
+    Reads an image, then resizes, blurs, thresholds,
+    and finds the outer contours of all cards in the image.
+    Returns a list of SET card objects and the open image of all card.
+    """
 
     # get the width and height for image to be resized
     w, h = resize_image(image, size=2000)
     # resize the image
-    image = cv.resize(image, (w, h), cv.INTER_AREA)
+    image = cv2.resize(image, (w, h), cv2.INTER_AREA)
     # make sure the image is horizontal, rotate 90 deg if vertical
     if w < h:
-        image = cv.rotate(image, cv.ROTATE_90_CLOCKWISE)
+        image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
     # convert the image color from BGR to RGB
-    image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     # convert the image color from BGR to GRAY
-    image_gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # blur the image
-    image_blur = cv.GaussianBlur(image_gray, (3, 3), 0)
+    image_blur = cv2.GaussianBlur(image_gray, (3, 3), 0)
     # threshold the image
-    ret, thresh = cv.threshold(image_blur, 180, 255, 0)
+    ret, thresh = cv2.threshold(image_blur, 180, 255, 0)
     # get the contours of the image
-    contours, hierarchy = cv.findContours(thresh, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     # create card objects from contours, get bounding boxes and crop cards
     cards = []  # list of card objects
     for cnt in contours:
         # get the area of the contour
-        area = cv.contourArea(cnt)
+        area = cv2.contourArea(cnt)
         # check if the area is large enough to be a card
         if area > 60000:
             # create a new card object of class SetCard
@@ -253,56 +275,57 @@ def find_card_contours(image):
             # save the contour of the card
             card.card_contour = cnt
             # get the bounding rectangle (box) of contour
-            card.bbox = [cv.boundingRect(cnt)]
+            card.bbox = [cv2.boundingRect(cnt)]
             # get minimum area rectangle from contour
-            rect = cv.minAreaRect(cnt)
+            rect = cv2.minAreaRect(cnt)
             # crop and rotate card from image
             rotated_card = rotate_card(image, rect)
             # resize card to 300 x 200 pixels
-            card.image = cv.resize(rotated_card, (300, 200), cv.INTER_LINEAR)
+            card.image = cv2.resize(rotated_card, (300, 200), cv2.INTER_LINEAR)
             # get corners of min area bounding box from rectangle
-            box = cv.boxPoints(rect)
+            box = cv2.boxPoints(rect)
             # save bounding box of entire card
             card.box = np.intp(box)
             # save card to list of cards
             cards.append(card)
 
-    # print the number of cards found
-    print(f"Found {len(cards)} cards")
+    # log the number of cards found
+    logging.info(f"Found {len(cards)} cards")
 
     return cards, image
 
 
 # Find contours of shapes on cards
-
-def get_shapes_on_cards(card, area_thresh=4000):
-    # Takes a card object of class SetCard,
-    # finds all shapes on a card.
-    # Modify the card object by updating the
-    # shape contours and shape bounding boxes lists,
-    # as well as the card label number.
+def get_shapes_on_cards(card: SetCard, area_thresh=4000):
+    """
+    Takes a card object of class SetCard,
+    finds all shapes on a card.
+    Modify the card object by updating the
+    shape contours and shape bounding boxes lists,
+    as well as the card label number.
+    """
 
     # copy the image of the card from object
     card_img = card.image.copy()
     # convert the image color to gray
-    gray_img = cv.cvtColor(card_img, cv.COLOR_RGB2GRAY)
+    gray_img = cv2.cvtColor(card_img, cv2.COLOR_RGB2GRAY)
     # blur the image
-    blur_img = cv.GaussianBlur(gray_img, (5, 5), cv.BORDER_DEFAULT)
+    blur_img = cv2.GaussianBlur(gray_img, (5, 5), cv2.BORDER_DEFAULT)
     # find the optimal threshold value with Otsu's thresholding
-    ret, otsu = cv.threshold(blur_img, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
+    ret, otsu = cv2.threshold(blur_img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     # threshold the image using Otsu's threshold value
-    ret, thresh_img = cv.threshold(blur_img, ret + 10, 255, cv.THRESH_BINARY_INV)
+    ret, thresh_img = cv2.threshold(blur_img, ret + 10, 255, cv2.THRESH_BINARY_INV)
     # find the contours of shapes in the image (on the card)
-    contours, hierarchy = cv.findContours(thresh_img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(thresh_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     # set card shapes (shape contours) and shape boxes to empty list
     card.shapes_contours = []
     card.shapes_boxes = []
     # loop through all the contours and append to list if area meets threshold
     for cnt in contours:
         # get the area of the contour
-        area = cv.contourArea(cnt)
+        area = cv2.contourArea(cnt)
         if area > area_thresh:
-            x, y, w, h = cv.boundingRect(cnt)
+            x, y, w, h = cv2.boundingRect(cnt)
             card.shapes_contours.append(cnt)
             card.shapes_boxes.append((x, y, w, h))
     # set card label number to the number of shapes found - 1
@@ -312,8 +335,10 @@ def get_shapes_on_cards(card, area_thresh=4000):
     return
 
 
-# Shape Detection
-# load images of shapes from disk.
+# -----------------------
+# --- Shape Detection ---
+# -----------------------
+
 # images represent the combinations of
 # shape (diamond, oval, squiggle) and shading (solid, open, stripe).
 
@@ -324,11 +349,14 @@ SHAPES_DIR = "shapes"
 shape_paths = list(paths.list_images(SHAPES_DIR))
 
 
-def load_shapes_train(shapes_train):
-    # function that reads the images of shapes from disk
-    # and returns lists of shape labels, images of shapes,
-    # and outer contours of shapes. Images loaded from disk
-    # are binary and have had thresholding performed.
+# load images of shapes from disk
+def load_shapes_train(shapes_train: List[str]) -> Tuple[List[Tuple[str, str]], List[np.ndarray], List[np.ndarray]]:
+    """
+    Function that reads the images of shapes from disk
+    and returns lists of shape labels, images of shapes,
+    and outer contours of shapes. Images loaded from disk
+    are binary and have had thresholding performed.
+    """
 
     labels = []  # list of labels (shape and shading)
     shape_images = []  # list of images (shapes)
@@ -340,15 +368,15 @@ def load_shapes_train(shapes_train):
         # save the shape and shading labels to list of labels
         labels.append((shape, shading))
         # read the image from disk
-        img = cv.imread(path)
+        img = cv2.imread(path)
         # convert the color from BGR to GRAY
-        img = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         # finds the outer contours in the image
-        contours, _ = cv.findContours(img, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         # loops through the contours and saves contours with an area greater than 4000 to list of contours
         for cnt in contours:
             # get the area of the contour
-            area = cv.contourArea(cnt)
+            area = cv2.contourArea(cnt)
             if area > 4000:
                 shape_contours.append(cnt)
         # save the image to the list of images
@@ -360,11 +388,13 @@ def load_shapes_train(shapes_train):
 shapesTrainLabels, shapesTrain, contoursTrain = load_shapes_train(shape_paths)
 
 
-def compare_shapes(labels, shape_images, shape_contours, cur_contour):
-    # function uses cv.matchShapes and compares
-    # the current shape contour on the card
-    # to all shape contours in the training set.
-    # returns the best match for shape "diamond", "oval", "squiggle"
+def compare_shapes(labels: List[Tuple[Literal["diamond", "oval", "squiggle"], str]], shape_images: List[np.ndarray], shape_contours: List[np.ndarray], cur_contour: np.ndarray) -> Literal["diamond", "oval", "squiggle"]:
+    """
+    Function uses cv.matchShapes and compares
+    the current shape contour on the card
+    to all shape contours in the training set.
+    returns the best match for shape "diamond", "oval", "squiggle"
+    """
 
     # number of shapes in the training set
     n = len(shape_images)
@@ -376,7 +406,7 @@ def compare_shapes(labels, shape_images, shape_contours, cur_contour):
         # select ith contour from training set
         cnt = shape_contours[i]
         # compare training contour to current contour
-        contour_res = cv.matchShapes(cnt, cur_contour, 1, 0.0)
+        contour_res = cv2.matchShapes(cnt, cur_contour, 1, 0.0)
         # save result of contour comparison
         contours_results[i] = contour_res
     # choose the index with the minimum score
@@ -387,9 +417,10 @@ def compare_shapes(labels, shape_images, shape_contours, cur_contour):
     return shape_prediction
 
 
-def get_shape_labels(card):
-    # function takes a SetCard object and
-    # sets its shape label
+def get_shape_labels(card: SetCard):
+    """
+    Function takes a SetCard object and sets its shape label.
+    """
 
     # get the contour of the first shape on the card
     if len(card.shapes_contours) > 0:
@@ -405,12 +436,16 @@ def get_shape_labels(card):
     return
 
 
-# Shading Detection
-# Detect the shading of shapes on Set cards.
+# -------------------------
+# --- Shading Detection ---
+# -------------------------
 
-def check_shading(thresh_img):
-    # takes a binary image (threshold) of a shape from a card
-    # returns the shading label as a string: "solid", "open", "stripe".
+# Detect the shading of shapes on Set cards.
+def check_shading(thresh_img: np.ndarray) -> Tuple[Literal["solid", "open", "stripe"], int]:
+    """
+    Takes a binary image (threshold) of a shape from a card
+    returns the shading label as a string: "solid", "open", "stripe".
+    """
 
     # find the coordinates for the middle of the image
     x, y = thresh_img.shape[1] // 2, thresh_img.shape[0] // 2
@@ -419,6 +454,7 @@ def check_shading(thresh_img):
     # average value of pixels in the patch
     patch_val = int(np.mean(patch))
     # check for the shading using the average of pixel values in the patch
+    shading_label: Literal["solid", "open", "stripe"]
     # a solid shading is completely white, all pixels are 255
     if patch_val == 255:
         shading_label = "solid"
@@ -433,9 +469,10 @@ def check_shading(thresh_img):
     return shading_label, patch_val
 
 
-def get_shading_labels(card):
-    # function takes a SetCard object and
-    # sets its shading label
+def get_shading_labels(card: SetCard):
+    """
+    Function takes a SetCard object and sets its shading label.
+    """
 
     # read the image of the card
     img = card.image
@@ -450,11 +487,11 @@ def get_shading_labels(card):
         # shape_img = img[y - 5:y + h + 5, x - 5:x + w + 5]
         shape_img = img[y1:y2, x1:x2]
         # blur the image of the shape
-        blur = cv.GaussianBlur(shape_img, (3, 3), 0)
+        blur = cv2.GaussianBlur(shape_img, (3, 3), 0)
         # convert the image color from RGB to GRAY
-        gray_img = cv.cvtColor(blur, cv.COLOR_RGB2GRAY)
+        gray_img = cv2.cvtColor(blur, cv2.COLOR_RGB2GRAY)
         # threshold the image
-        ret, thresh_img = cv.threshold(gray_img, 215, 255, cv.THRESH_BINARY_INV, 0)
+        ret, thresh_img = cv2.threshold(gray_img, 215, 255, cv2.THRESH_BINARY_INV, 0)
         # get the shading label as a string
         shading_label, patch_val = check_shading(thresh_img)
         # set the shading label 0:"solid", 1:"open", 2:"stripe"
@@ -463,13 +500,17 @@ def get_shading_labels(card):
     return
 
 
-# Color Detection
-# Detect the color of shapes on SET cards.
+# -----------------------
+# --- Color Detection ---
+# -----------------------
 
-def mask_score(mask):
-    # Function calculates the proportion of
-    # pixels in the mask representing a color
-    # and returns the float value used for scoring
+# Detect the color of shapes on SET cards.
+def mask_score(mask: np.ndarray) -> float:
+    """
+    Function calculates the proportion of
+    pixels in the mask representing a color
+    and returns the float value used for scoring.
+    """
 
     # count the number of pixels with value 255
     count = 0
@@ -489,18 +530,16 @@ def mask_score(mask):
     # equal to 255 by the total number of pixels in the maks
     score = count / pixels
 
-    # print report
-    # print(f"found {count} {color} pixels out of {pixels} total pixels")
-    # print(f"{np.round((count / pixels) * 100, 4)}% of pixels are {color}")
-
     return score
 
 
-def check_colors(hsv):
-    # function takes an image of a shape in hsv color,
-    # detects the color of the shape using cv.inRange
-    # for three colors: red, green, and purple.
-    # returns the integer label 0: "red", 1: "green", 2: "purple"
+def check_colors(hsv: np.ndarray) -> np.signedinteger:
+    """
+    Function takes an image of a shape in hsv color,
+    detects the color of the shape using cv.inRange
+    for three colors: red, green, and purple.
+    returns the integer label 0: "red", 1: "green", 2: "purple"
+    """
 
     # ordered list of colors to detect
     # colors = ["red", "green", "purple"]
@@ -518,7 +557,7 @@ def check_colors(hsv):
         lower = np.array(boundary[0], dtype="uint8")
         upper = np.array(boundary[1], dtype="uint8")
         # find the colors within the specified boundaries and apply the mask
-        mask = cv.inRange(hsv, lower, upper)
+        mask = cv2.inRange(hsv, lower, upper)
         # append the resulting mask to the list of masks
         masks.append(mask)
         # calculate the score of the mask
@@ -530,9 +569,10 @@ def check_colors(hsv):
     return res
 
 
-def get_color_labels(card):
-    # function takes a SetCard object and
-    # sets its color label
+def get_color_labels(card: SetCard):
+    """
+    Function takes a SetCard object and sets its color label.
+    """
 
     # read the image of the card
     img = card.image
@@ -546,9 +586,9 @@ def get_color_labels(card):
         shape_img = img[y1:y2, x1:x2]
         # shape_img = img[y - 5:y + h + 5, x - 5:x + w + 5]
         # blur the image of the shape
-        blur = cv.GaussianBlur(shape_img, (3, 3), 0)
+        blur = cv2.GaussianBlur(shape_img, (3, 3), 0)
         # convert the image color from RGB to HSV
-        hsv = cv.cvtColor(blur, cv.COLOR_RGB2HSV)
+        hsv = cv2.cvtColor(blur, cv2.COLOR_RGB2HSV)
         # detect the color of the shape from HSV image and
         # set the color label 0: "red", 1: "green", 2: "purple"
         card.color = check_colors(hsv)
@@ -556,9 +596,11 @@ def get_color_labels(card):
     return
 
 
-def get_labels(card):
-    # function takes a SetCard object and
-    # sets its shape, shading, and color labels
+def get_labels(card: SetCard):
+    """
+    Function takes a SetCard object and
+    sets its shape, shading, and color labels
+    """
 
     if len(card.shapes_contours) > 0:
         # read the image of the card
@@ -581,11 +623,11 @@ def get_labels(card):
         # slice the image, crop to first shape on the card
         shape_img = img[y1:y2, x1:x2]
         # blur the image of the shape
-        blur = cv.GaussianBlur(shape_img, (3, 3), 0)
+        blur = cv2.GaussianBlur(shape_img, (3, 3), 0)
         # convert the image color from RGB to GRAY
-        gray_img = cv.cvtColor(blur, cv.COLOR_RGB2GRAY)
+        gray_img = cv2.cvtColor(blur, cv2.COLOR_RGB2GRAY)
         # threshold the image
-        ret, thresh_img = cv.threshold(gray_img, 215, 255, cv.THRESH_BINARY_INV, 0)
+        ret, thresh_img = cv2.threshold(gray_img, 215, 255, cv2.THRESH_BINARY_INV, 0)
 
         # get the shading label as a string
         shading_label, patch_val = check_shading(thresh_img)
@@ -593,23 +635,27 @@ def get_labels(card):
         card.shading = LABELS_MAP["shading"][shading_label]
 
         # convert the image color from RGB to HSV
-        hsv = cv.cvtColor(blur, cv.COLOR_RGB2HSV)
+        hsv = cv2.cvtColor(blur, cv2.COLOR_RGB2HSV)
         # detect the color of the shape from HSV image and
         # set the color label 0: "red", 1: "green", 2: "purple"
         card.color = check_colors(hsv)
 
     return
 
-# Annotate the original image
 
+# -----------------------------------
+# --- Annotate the original image ---
+# -----------------------------------
 
-def annotate_cards_image(set_cards, annotate_img, save, name):
+def annotate_cards_image(set_cards: List[SetCard], annotate_img: np.ndarray, save: bool, name: str) -> np.ndarray:
+    """Draw a box around and annotate cards in image"""
+
     # convert the color of the image from RGB to BGR
-    annotate_img = cv.cvtColor(annotate_img, cv.COLOR_RGB2BGR)
+    annotate_img = cv2.cvtColor(annotate_img, cv2.COLOR_RGB2BGR)
     # loop through all card objects in list
     for card in set_cards:
         # draw boxes around cards
-        cv.drawContours(annotate_img, [card.box], -1, (0, 255, 0), 5)
+        cv2.drawContours(annotate_img, [card.box], -1, (0, 255, 0), 5)
         # build the string for putting text on the image
         text = ""
         for i, key in enumerate(SET_MAP.keys()):
@@ -619,26 +665,28 @@ def annotate_cards_image(set_cards, annotate_img, save, name):
         # get x, y coordinates for text
         x, y, w, h = card.bbox[0]
         # get text size
-        text_size = cv.getTextSize(text, cv.FONT_HERSHEY_PLAIN, 1.3, 2)
+        text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_PLAIN, 1.3, 2)
         dim = text_size[0]
         baseline = text_size[1]
         # Use text size to create a black rectangle
-        cv.rectangle(annotate_img, (x, y - dim[1] - baseline), (x + dim[0], y + baseline), (0, 0, 0), cv.FILLED)
+        cv2.rectangle(annotate_img, (x, y - dim[1] - baseline), (x + dim[0], y + baseline), (0, 0, 0), cv2.FILLED)
         # put text labels on the image
-        cv.putText(annotate_img, text, (x, y), cv.FONT_HERSHEY_PLAIN, 1.3, (0, 255, 255), 2)
+        cv2.putText(annotate_img, text, (x, y), cv2.FONT_HERSHEY_PLAIN, 1.3, (0, 255, 255), 2)
 
     if save:
         # write the solved image to disk
-        cv.imwrite(f"images/solved/{name}.jpg", annotate_img)
+        cv2.imwrite(f"images/solved/{name}.jpg", annotate_img)
 
     return annotate_img
 
 
-def show_image_opencv(frame_title, annotate_img):
-    # show the image with opencv
-    cv.imshow(frame_title, annotate_img)
+def show_image_opencv(frame_title: str, annotate_img: np.ndarray):
+    """Show the image with opencv"""
+
+    cv2.imshow(frame_title, annotate_img)
     # wait for any key to be pressed
-    cv.waitKey(0)
+    cv2.waitKey(0)
     # closing all open windows
-    cv.destroyAllWindows()
+    cv2.destroyAllWindows()
+
     return
