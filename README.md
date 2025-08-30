@@ -37,8 +37,15 @@ optional arguments:
 * `set_card_detection.py` - Class and Functions for set_solver_vision.py that perform various steps of the card detection algorithm.
 
 ## Dependencies
+
 ```
 Python 3.9
 OpenCV 4.7.0
 numpy 1.25.1
 ```
+
+## Documentation
+
+* OpenCV [documentation](https://docs.opencv.org/master/)
+* opencv-python [PyPi](https://pypi.org/project/opencv-python/)
+
